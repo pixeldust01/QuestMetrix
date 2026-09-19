@@ -161,11 +161,14 @@ The project should not adopt complex infrastructure before the simpler version i
 - Confirmed no events are lost if the worker restarts mid-processing.
 - The worker is wired to update/invalidate Redis cache entries after a successful write.
 
+#### Milestone 6 — Real-Time + Session Replay
+
+- 
+
 ### 2.3 Planned Scope
 
 #### Scalable Infrastructure (remaining)
 
-- WebSockets
 - CI/CD
 - Full monitoring and alerting (structured JSON logging currently exists only in `worker.py`, via plain `logging.info()` calls — not yet the structured format described in §9.1)
 
@@ -399,6 +402,8 @@ tests/
 | Message queue     | Redis Streams                          | Asynchronous event delivery       | See "Decision update" below                                                                                                       |
 | Workers           | Python background worker (`worker.py`) | Event processing                  | Decouples ingestion from persistence; consumes the Redis Stream and writes to PostgreSQL                                          |
 | Testing tooling   | pytest + Docker Compose `test-runner`  | Automated testing                 | Runs `unit/`, `integration/`, and `e2e/` suites in a consistent containerized environment                                         |
+| Authentication    | API keys (`game_id` ↔ key mapping) | Restrict who can call the API | Simplest model that scopes access per game without full OAuth complexity                                                    |
+| Rate limiting     | Middleware-based (library TBD)     | Prevent API abuse             | Needed before the API is exposed anywhere beyond localhost                                                                  |
 
 **Decision update — message queue:** v0.2 of this document listed RabbitMQ as the preferred candidate. In implementation, **Redis Streams** was chosen instead, since Redis was already deployed for caching — this avoided introducing a second piece of infrastructure to run and operate. RabbitMQ remains worth revisiting later if Redis Streams becomes a limiting factor.
 
@@ -406,8 +411,6 @@ tests/
 
 | Component         | Technology                         | Role                          | Decision / Rationale                                                                                                        |
 | ----------------- | ---------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Authentication    | API keys (`game_id` ↔ key mapping) | Restrict who can call the API | Simplest model that scopes access per game without full OAuth complexity                                                    |
-| Rate limiting     | Middleware-based (library TBD)     | Prevent API abuse             | Needed before the API is exposed anywhere beyond localhost                                                                  |
 | Real-time updates | WebSockets                         | Live dashboard updates        | Allows the server to push relevant changes without polling                                                                  |
 | CI/CD             | GitHub Actions or similar          | Automated workflow            | Automates testing and deployment checks                                                                                     |
 | Load testing      | Locust or k6 (candidate)           | Performance validation        | The `unit`/`integration`/`e2e` suite now exists (see above); load testing and CI integration are the remaining testing gaps |
@@ -1709,14 +1712,14 @@ Initial TDD covering:
 | 2   | Game Integration      | Godot SDK and real game → API event flow                                                                                                                       | Complete |
 | 3   | Analytics             | Player/level/session statistics                                                                                                                                | Complete |
 | 4   | Dashboard             | React analytics dashboard                                                                                                                                      | Complete |
-| 5   | Scalability           | Redis, message queue, workers, rate limiting, authentication                                                                                                   | WIP      |
-| 6   | Real-Time / Advanced  | WebSockets + session/replay visualization                                                                                                                      | Planned  |
+| 5   | Scalability           | Redis, message queue, workers, rate limiting, authentication                                                                                                   | Complete      |
+| 6   | Real-Time / Advanced  | WebSockets + session/replay visualization                                                                                                                      | WIP  |
 | 7   | Engineering Hardening | CI integration for tests, full structured logging, CI/CD, load testing (Docker and an initial unit/integration/e2e suite were pulled forward into Milestone 5) | Planned  |
 
 A detailed task breakdown should be maintained separately in:
 
 ```text
-docs/ROADMAP.md
+docs/QM_ROADMAP.md
 ```
 
 ---
