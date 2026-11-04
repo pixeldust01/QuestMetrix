@@ -1,7 +1,7 @@
 # Technical Design Document (TDD): QuestMetrix
 
-**Version:** v0.22
-**Date:** 24 Aug 2026  
+**Version:** v0.23
+**Date:** 5 Nov 2026  
 **Status:** Living document — update as milestones close
 
 ---
@@ -34,11 +34,11 @@ Analytics API
 Analytics Dashboard
 ```
 
-As of this revision, the implementation covers the API, database, SDK, analytics layer, dashboard, and the asynchronous queue/worker pipeline (§1.2). The project is being developed incrementally so that each architectural component is understood, tested, and stabilized before the next component is introduced.
+As of this revision, the implementation covers the API, database, SDK, analytics layer, dashboard, asynchronous queue/worker pipeline, and real-time updates via WebSockets (§1.2). The project is being developed incrementally so that each architectural component is understood, tested, and stabilized before the next component is introduced.
 
 ### 1.2 Current Implementation Status
 
-Milestones 1 through 4 are complete, and Milestone 5 (Scalable Infrastructure) is in progress — the asynchronous pipeline (queue + worker) is live, and rate limiting/authentication are the remaining open items:
+Milestones 1 through 6 are complete, and Milestone 7 (CI/CD and Observability) is now planned. The full pipeline, from game client to live dashboard, is now functional:
 
 ```text
 Godot SDK / Client
@@ -59,7 +59,7 @@ Analytics API (games / players / levels)
        ↓
 Redis cache (60s TTL)
        ↓
-React Dashboard
+React Dashboard ↔ WebSocket
 ```
 
 Currently implemented:
@@ -69,20 +69,21 @@ Currently implemented:
 - `questmetrix` database
 - `events` table
 - Pydantic event validation
-- `POST /events` (now publishes to the queue rather than writing directly — see §3.1 and §6.3)
+- `POST /events` (publishes to the queue)
 - `GET /events`, `GET /games`, `GET /players`, `GET /levels`
 - environment-based database configuration
-- manual API verification through FastAPI Swagger/OpenAPI documentation
-- Godot SDK for event submission (`QuestMetrix.gd`, with error handling and its own README)
-- Session grouping (30-minute inactivity window) and a basic daily retention metric
-- React analytics dashboard (`dashboard/`): raw event table, summary stat cards, charts, loading/error states
-- Redis caching (60-second TTL on `GET /games`, with tested hit/expiry/invalidation behavior)
-- Redis Streams as the message queue between the API and the background worker
-- A background worker (`worker.py`) that consumes the queue and persists events to PostgreSQL, using structured `logging.info()` calls (captured by `docker logs`)
-- Full Docker Compose containerization: FastAPI, PostgreSQL (with a persistent volume), Redis, and the worker all run and communicate via internal service names, brought up with a single `docker-compose up -d --build`
-- A restructured automated test suite (`unit/`, `integration/`, `e2e/`) run through a dedicated `test-runner` Docker Compose service/profile
+- Godot SDK for event submission (`QuestMetrix.gd`)
+- Session grouping and a basic daily retention metric
+- React analytics dashboard with real-time updates via WebSockets
+- Redis caching (60-second TTL on `GET /games`)
+- Redis Streams as the message queue
+- A background worker (`worker.py`) that consumes the queue and persists events to PostgreSQL
+- Full Docker Compose containerization for all services
+- A restructured automated test suite (`unit/`, `integration/`, `e2e/`)
+- API key authentication and rate limiting on `POST /events`
+- Real-time event broadcasting via WebSockets from the server to the dashboard
 
-Authentication, rate limiting, WebSockets, session/replay visualization, CI/CD, load testing, and full monitoring/alerting are still planned rather than implemented.
+Session/replay visualization, CI/CD, load testing, and full monitoring/alerting are still planned rather than implemented.
 
 ---
 
@@ -161,9 +162,13 @@ The project should not adopt complex infrastructure before the simpler version i
 - Confirmed no events are lost if the worker restarts mid-processing.
 - The worker is wired to update/invalidate Redis cache entries after a successful write.
 
-#### Milestone 6 — Real-Time + Session Replay
+#### Milestone 6 — Real-Time Dashboard
 
-- 
+- A WebSocket endpoint was added to the FastAPI server to broadcast events.
+- The server uses a Redis Pub/Sub channel to receive events from the worker and forward them to connected clients.
+- The React dashboard connects to the WebSocket and updates in real-time.
+- Live updates include the raw event table, summary statistics, and all charts.
+- Chronological ordering is handled to ensure consistency between REST and WebSocket data.
 
 ### 2.3 Planned Scope
 
@@ -285,7 +290,7 @@ The message queue separates event ingestion from downstream processing. Workers 
 
 Redis will be considered for frequently accessed analytics, session lookups, and other data where low-latency access provides a measurable benefit.
 
-**Status update:** the SDK, Event API, Message Queue, Processing Worker, PostgreSQL, Redis (caching), and Analytics API Layer boxes above are now implemented (see §3.1). The remaining gap between this diagram and reality is narrower than it was at v0.2: WebSocket delivery to the dashboard is still not built, and the pipeline isn't yet gated by authentication or rate limiting.
+**Status update:** the SDK, Event API, Message Queue, Processing Worker, PostgreSQL, Redis (caching), and Analytics API Layer boxes above are now implemented (see §3.1). The remaining gap between this diagram and reality is narrower than it was at v0.2: session/replay analysis is still not built, and the pipeline isn't yet gated by authentication or rate limiting.
 
 ### 3.3 Architectural Principle
 
@@ -317,13 +322,13 @@ Redis caching → Docker containerization → Redis Streams queue → Worker →
 
         ↓
 
-Milestone 6 ⏳ Planned
-WebSockets + session/replay analysis
+Milestone 6 ✅ Complete
+WebSockets for real-time dashboard updates
 
         ↓
 
 Milestone 7 ⏳ Planned
-CI/CD + full observability + load testing
+CI/CD, session/replay analysis, and full observability
 (automated tests and Docker support were pulled forward into Milestone 5 —
 see §2.2 — because the async pipeline needed them earlier than originally scoped)
 ```
@@ -358,9 +363,10 @@ PostgreSQL
   ▼
 Analytics API                                ✅ implemented (games/players/levels)
   │
+  ├────────► WebSocket                       ✅ implemented
+  │
   ▼
-Dashboard                                    ✅ implemented (polls the API;
-                                                 no live push yet — see §3.2)
+Dashboard                                    ✅ implemented (receives live updates)
 ```
 
 ### 3.6 Testing Architecture
@@ -402,18 +408,17 @@ tests/
 | Message queue     | Redis Streams                          | Asynchronous event delivery       | See "Decision update" below                                                                                                       |
 | Workers           | Python background worker (`worker.py`) | Event processing                  | Decouples ingestion from persistence; consumes the Redis Stream and writes to PostgreSQL                                          |
 | Testing tooling   | pytest + Docker Compose `test-runner`  | Automated testing                 | Runs `unit/`, `integration/`, and `e2e/` suites in a consistent containerized environment                                         |
-| Authentication    | API keys (`game_id` ↔ key mapping) | Restrict who can call the API | Simplest model that scopes access per game without full OAuth complexity                                                    |
-| Rate limiting     | Middleware-based (library TBD)     | Prevent API abuse             | Needed before the API is exposed anywhere beyond localhost                                                                  |
+| Authentication    | API keys (`game_id` ↔ key mapping)     | Restrict who can call the API     | Simplest model that scopes access per game without full OAuth complexity                                                          |
+| Real-time updates | WebSockets                             | Live dashboard updates            | Allows the server to push relevant changes without polling                                                                        |
 
 **Decision update — message queue:** v0.2 of this document listed RabbitMQ as the preferred candidate. In implementation, **Redis Streams** was chosen instead, since Redis was already deployed for caching — this avoided introducing a second piece of infrastructure to run and operate. RabbitMQ remains worth revisiting later if Redis Streams becomes a limiting factor.
 
 ### 4.2 Planned
 
-| Component         | Technology                         | Role                          | Decision / Rationale                                                                                                        |
-| ----------------- | ---------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Real-time updates | WebSockets                         | Live dashboard updates        | Allows the server to push relevant changes without polling                                                                  |
-| CI/CD             | GitHub Actions or similar          | Automated workflow            | Automates testing and deployment checks                                                                                     |
-| Load testing      | Locust or k6 (candidate)           | Performance validation        | The `unit`/`integration`/`e2e` suite now exists (see above); load testing and CI integration are the remaining testing gaps |
+| Component    | Technology                | Role                   | Decision / Rationale                                                                                                        |
+| ------------ | ------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| CI/CD        | GitHub Actions or similar | Automated workflow     | Automates testing and deployment checks                                                                                     |
+| Load testing | Locust or k6 (candidate)  | Performance validation | The `unit`/`integration`/`e2e` suite now exists (see above); load testing and CI integration are the remaining testing gaps |
 
 **Technology decisions marked as candidate/planned are not final until the corresponding milestone is implemented and evaluated.**
 
@@ -1712,8 +1717,8 @@ Initial TDD covering:
 | 2   | Game Integration      | Godot SDK and real game → API event flow                                                                                                                       | Complete |
 | 3   | Analytics             | Player/level/session statistics                                                                                                                                | Complete |
 | 4   | Dashboard             | React analytics dashboard                                                                                                                                      | Complete |
-| 5   | Scalability           | Redis, message queue, workers, rate limiting, authentication                                                                                                   | Complete      |
-| 6   | Real-Time / Advanced  | WebSockets + session/replay visualization                                                                                                                      | WIP  |
+| 5   | Scalability           | Redis, message queue, workers, rate limiting, authentication                                                                                                   | Complete |
+| 6   | Real-Time / Advanced  | WebSockets + session/replay visualization                                                                                                                      | WIP      |
 | 7   | Engineering Hardening | CI integration for tests, full structured logging, CI/CD, load testing (Docker and an initial unit/integration/e2e suite were pulled forward into Milestone 5) | Planned  |
 
 A detailed task breakdown should be maintained separately in:
