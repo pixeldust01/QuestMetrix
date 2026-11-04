@@ -219,8 +219,8 @@ Already done as of 11 Aug 2026. For the record, this is what "done" looked like 
 
 ### Week 2 — Deadline: Sun 29 Nov 2026
 
-- [ ] Connect the React dashboard to the WebSocket
-- [ ] Make at least one chart or the raw event table update live without a page refresh
+- [x] Connect the React dashboard to the WebSocket
+- [x] Make at least one chart or the raw event table update live without a page refresh
 
 ### Week 3 — Deadline: Sun 06 Dec 2026
 

@@ -2,13 +2,22 @@
 
 A chronological log of the project's development milestones.
 
+### 5 November 2026
+
+- **Implemented Real-Time Dashboard Updates via WebSockets (M7):** Successfully connected the React dashboard to the WebSocket endpoint, enabling live data updates without page refreshes.
+- **Key Features:**
+  - The dashboard now receives and displays events in real-time as they are broadcast from the backend.
+  - All summary statistics and charts are updated dynamically, providing an up-to-the-minute view of game analytics.
+  - Implemented logic to ensure incoming events are chronologically ordered and consistent with data retrieved via the REST API.
+- **Verification:** End-to-end testing confirmed that events sent from the game client are reflected in the dashboard in real-time.
+
 ### 19 September 2026
 
 - **Implemented Real-Time Event Broadcasting via WebSockets (M6):** Established the foundation for live front-end updates by creating an end-to-end WebSocket pipeline.
 - **Architecture:**
-    - Added a WebSocket endpoint and connection manager to the FastAPI application.
-    - Utilized Redis Pub/Sub to decouple the worker from the API. The worker now publishes successfully processed events to a Redis channel.
-    - The FastAPI server subscribes to this channel and broadcasts incoming messages to all connected WebSocket clients.
+  - Added a WebSocket endpoint and connection manager to the FastAPI application.
+  - Utilized Redis Pub/Sub to decouple the worker from the API. The worker now publishes successfully processed events to a Redis channel.
+  - The FastAPI server subscribes to this channel and broadcasts incoming messages to all connected WebSocket clients.
 - **Verification:** A new integration test was added to verify that events sent through the `POST /events` endpoint are correctly processed and broadcast to a connected WebSocket client.
 
 ### 17 September 2026

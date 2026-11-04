@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { aggregateEventsByDate } from "./eventsOverTime";
 
 import {
   LineChart,
@@ -13,6 +14,9 @@ import {
 } from "recharts";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
+const WS_URL = "ws://127.0.0.1:8000/ws/events";
+const LEVELS_GAME_ID =
+  import.meta.env.VITE_ANALYTICS_GAME_ID || "mock_analytics_game";
 
 function App() {
   const [events, setEvents] = useState([]);
@@ -22,69 +26,105 @@ function App() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState("Connecting...");
 
-  const eventsOverTime = Object.values(
-    events.reduce((accumulator, event) => {
-      const date = event.timestamp.split("T")[0];
-
-      if (!accumulator[date]) {
-        accumulator[date] = {
-          date,
-          events: 0,
-        };
-      }
-
-      accumulator[date].events += 1;
-
-      return accumulator;
-    }, {}),
-  );
-
-  useEffect(() => {
-    Promise.all([
-      fetch(`${API_BASE_URL}/events`),
+  const refreshAnalytics = async () => {
+    const [gamesResponse, playersResponse, levelsResponse] = await Promise.all([
       fetch(`${API_BASE_URL}/games`),
       fetch(`${API_BASE_URL}/players`),
-      fetch(`${API_BASE_URL}/levels?game_id=mock_analytics_game`),
-    ])
-      .then(
-        async ([
-          eventsResponse,
-          gamesResponse,
-          playersResponse,
-          levelsResponse,
-        ]) => {
-          if (
-            !eventsResponse.ok ||
-            !gamesResponse.ok ||
-            !playersResponse.ok ||
-            !levelsResponse.ok
-          ) {
-            throw new Error("Failed to fetch dashboard data");
-          }
+      fetch(
+        `${API_BASE_URL}/levels?game_id=${encodeURIComponent(LEVELS_GAME_ID)}`,
+      ),
+    ]);
 
-          const eventsData = await eventsResponse.json();
-          const gamesData = await gamesResponse.json();
-          const playersData = await playersResponse.json();
-          const levelsData = await levelsResponse.json();
+    if (!gamesResponse.ok || !playersResponse.ok || !levelsResponse.ok) {
+      throw new Error("Failed to refresh dashboard analytics");
+    }
 
-          setEvents(eventsData);
-          setGames(gamesData);
-          setPlayers(playersData);
-          setLevels(levelsData);
+    const [gamesData, playersData, levelsData] = await Promise.all([
+      gamesResponse.json(),
+      playersResponse.json(),
+      levelsResponse.json(),
+    ]);
 
-          setLoading(false);
-        },
-      )
+    setGames(gamesData);
+    setPlayers(playersData);
+    setLevels(levelsData);
+  };
+
+  const eventsOverTime = aggregateEventsByDate(events);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/events`)
+      .then(async (eventsResponse) => {
+        if (!eventsResponse.ok) {
+          throw new Error("Failed to fetch dashboard events");
+        }
+
+        setEvents(await eventsResponse.json());
+        await refreshAnalytics();
+        setLoading(false);
+      })
       .catch((error) => {
         setError(error.message);
         setLoading(false);
       });
   }, []);
 
+  useEffect(() => {
+    const socket = new WebSocket(WS_URL);
+    let analyticsRefreshTimer;
+
+    socket.onopen = () => {
+      console.log("Connected to QuestMetrix WebSocket");
+      setConnectionStatus("Connected");
+    };
+
+    socket.onmessage = (message) => {
+      try {
+        const eventData = JSON.parse(message.data);
+
+        console.log("New event received:", eventData);
+
+        setEvents((previousEvents) => [
+          {
+            ...eventData,
+            id: `live-${Date.now()}-${Math.random()}`,
+          },
+          ...previousEvents,
+        ]);
+
+        clearTimeout(analyticsRefreshTimer);
+        analyticsRefreshTimer = setTimeout(() => {
+          refreshAnalytics().catch((error) => {
+            setError(error.message);
+          });
+        }, 500);
+      } catch (error) {
+        console.error("Failed to process WebSocket event:", error);
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setConnectionStatus("Error");
+    };
+
+    socket.onclose = () => {
+      console.log("WebSocket disconnected");
+      setConnectionStatus("Disconnected");
+    };
+
+    return () => {
+      clearTimeout(analyticsRefreshTimer);
+      socket.close();
+    };
+  }, []);
+
   return (
     <div>
       <h1>QuestMetrix</h1>
+      <p>WebSocket Status: {connectionStatus}</p>
       <div className="summary-cards">
         <div className="card">
           <h3>Total Events</h3>

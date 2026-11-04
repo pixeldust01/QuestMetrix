@@ -73,3 +73,15 @@ th {
   border: 1px solid #ccc;
   background: white;
 }
+
+.connection-status {
+  background: #f0f0f0;
+  padding: 10px;
+  border: 1px solid #ddd;
+  margin-bottom: 20px;
+}
+
+.connection-status p {
+  margin: 0;
+  font-weight: bold;
+}

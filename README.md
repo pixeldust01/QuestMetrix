@@ -196,7 +196,7 @@ For instructions on setting up the Godot test client, please refer to the SDK's 
 
 ### Phase 6 - Real-Time + Session Replay
 
-- [ ] Add WebSockets
+- [x] Add WebSockets
 - [ ] Add session/replay analysis
 
 ### Phase 7 - Engineering Hardening
